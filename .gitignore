@@ -1,0 +1,5 @@
+compile_commands.json
+replace.sh
+.cache/
+nbody
+*_results.csv
