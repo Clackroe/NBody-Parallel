@@ -17,6 +17,7 @@
 #include <Renderer.hpp>
 
 #include <ostream>
+#include <unordered_map>
 #include <vector>
 
 #define G 9.8
@@ -62,7 +63,21 @@ Vec2 CompareFinalPositions(const std::vector<Body>& sequential, const std::vecto
     return { cumulative.x / bodies.size(), cumulative.y / bodies.size() };
 }
 
-void BenchMarkAllCSV(const std::vector<Body>& originalBodies, const std::string& csvPath, const std::vector<int>& bodyCounts)
+std::vector<Body> GenerateBodiesMT(int size)
+{
+    std::vector<Body> bodies(size);
+#pragma omp parallel for
+    for (int i = 0; i < bodies.size(); i++) {
+        Body b;
+        b.position = { generate_random_double(100, WIDTH - 100), generate_random_double(100, HEIGHT - 100) };
+        b.velocity = { 0, 0 };
+        b.mass = generate_random_double(10, 100);
+        bodies[i] = b;
+    }
+    return bodies;
+}
+
+void BenchMarkAllCSV(const std::string& csvPath, const std::vector<int>& bodyCounts)
 {
     if (std::filesystem::exists(csvPath)) {
         std::filesystem::remove(csvPath);
@@ -71,25 +86,35 @@ void BenchMarkAllCSV(const std::vector<Body>& originalBodies, const std::string&
     printf("======== NUM BODIES SCALING BENCHMARK ========\n");
 
     std::fstream stream(csvPath, std::ios::out);
-    stream << "Method,NumBodies,Seconds\n";
+    stream << "Method";
+    for (auto num : bodyCounts) {
+        stream << "," << num;
+    }
+    stream << "\n";
 
     int fixedFrames = 1;
-    for (int numBodies : bodyCounts) {
-        printf("--- BODIES: %d ---\n\n", numBodies);
+    std::unordered_map<std::string, std::vector<double>> times;
+    for (auto& [name, bTimes] : times) {
+        bTimes.resize(bodyCounts.size());
+    }
 
-        std::vector<Body> bodies(originalBodies.begin(), originalBodies.begin() + numBodies);
+    for (int index = 0; index < bodyCounts.size(); index++) {
+        int numBodies = bodyCounts[index];
+        auto bodies = GenerateBodiesMT(numBodies);
+
+        printf("--- BODIES: %d ---\n\n", numBodies);
 
         std::vector<Body> seqBds = CopyBodies(bodies);
         std::string name = "Sequential";
         double time = BenchMark(CalculateForcesSequential, UpdateSequential, seqBds, name, fixedFrames);
-        stream << name << "," << numBodies << "," << fixedFrames << "," << time << "\n";
+        times[name].push_back(time);
 
         {
             std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Block)";
-            time = BenchMark(CalculateForcesMTBlock, UpdateMT, bds, name, fixedFrames);
+            name = "MultiThreaded (Reduction)";
+            time = BenchMark(CalculateForcesMTReduction, UpdateMT, bds, name, fixedFrames);
             Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            stream << name << "," << numBodies << "," << fixedFrames << "," << time << "\n";
+            times[name].push_back(time);
         }
 
         {
@@ -97,7 +122,7 @@ void BenchMarkAllCSV(const std::vector<Body>& originalBodies, const std::string&
             name = "MultiThreaded (Atomic)";
             time = BenchMark(CalculateForcesMTAtomic, UpdateMT, bds, name, fixedFrames);
             Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            stream << name << "," << numBodies << "," << fixedFrames << "," << time << "\n";
+            times[name].push_back(time);
         }
 
         {
@@ -105,44 +130,34 @@ void BenchMarkAllCSV(const std::vector<Body>& originalBodies, const std::string&
             name = "MultiThreaded (Critical)";
             time = BenchMark(CalculateForcesMTCritical, UpdateMT, bds, name, fixedFrames);
             Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            stream << name << "," << numBodies << "," << fixedFrames << "," << time << "\n";
+            times[name].push_back(time);
         }
+    }
 
-        {
-            std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Task)";
-            time = BenchMark(CalculateForcesMTTask, UpdateMT, bds, name, fixedFrames);
-            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            stream << name << "," << numBodies << "," << fixedFrames << "," << time << "\n";
+    for (auto [name, bTimes] : times) {
+        stream << name;
+        for (double t : bTimes) {
+            stream << "," << t;
         }
+        stream << "\n";
     }
 
     stream.close();
 }
 
-#define N 30
 #define FRAMES 1000
-
 int main()
 {
-    std::vector<Body> bodies;
-    for (int i = 0; i < N; i++) {
-        Body b;
-        b.position = { generate_random_double(100, WIDTH - 100), generate_random_double(100, HEIGHT - 100) };
-        b.velocity = { 0, 0 };
-        b.mass = generate_random_double(10, 100);
-        bodies.push_back(b);
-    }
+    std::vector<int> bodyCounts = { 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 2000, 3000, 5000 };
 
-    std::vector<int> bodyCounts = { 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 2000, 3000 };
-    BenchMarkAllCSV(bodies, "benchmark_results.csv", bodyCounts);
+    BenchMarkAllCSV("benchmark_results.csv", bodyCounts);
 
     {
         std::vector<std::vector<unsigned char>> frames;
-        std::vector<Body> bds = CopyBodies(bodies);
+        std::vector<Body> bds = GenerateBodiesMT(35);
         for (int i = 0; i < FRAMES; i++) {
 
-            CalculateForcesMTAtomic(bds, G);
+            CalculateForcesMTReduction(bds, G);
             UpdateMT(bds, DT, WIDTH, HEIGHT);
 
             frames.push_back(std::move(RenderFrame(bds, WIDTH, HEIGHT)));

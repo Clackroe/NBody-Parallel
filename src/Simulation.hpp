@@ -7,8 +7,7 @@
 void CalculateForcesSequential(std::vector<Body>& bodies, double G);
 void UpdateSequential(std::vector<Body>& bodies, double deltaTime, int width, int height);
 
-void CalculateForcesMTBlock(std::vector<Body>& bodies, double G);
-void CalculateForcesMTTask(std::vector<Body>& bodies, double G);
+void CalculateForcesMTReduction(std::vector<Body>& bodies, double G);
 void CalculateForcesMTAtomic(std::vector<Body>& bodies, double G);
 void CalculateForcesMTCritical(std::vector<Body>& bodies, double G);
 void UpdateMT(std::vector<Body>& bodies, double deltaTime, int width, int height);

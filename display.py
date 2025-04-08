@@ -1,25 +1,38 @@
-import pandas as pd
+import csv
+import os
 import matplotlib.pyplot as plt
 
+# Read data from CSV
+file_path = 'benchmark_results.csv'
+methods = {}
+x_labels = []
 
-df = pd.read_csv("benchmark_results.csv")  
+with open(file_path, 'r') as csvfile:
+    reader = csv.reader(csvfile)
+    headers = next(reader)
+    x_labels = list(map(int, headers[1:]))  # skip 'Method'
 
-# Display table
-print(df)
+    for row in reader:
+        method = row[0]
+        timings = list(map(float, row[1:]))
+        methods[method] = timings
 
-# Plotting
-for method in df['Method'].unique():
-    method_df = df[df['Method'] == method]  # Filter data for each method
-    plt.plot(method_df['NumBodies'], method_df['Seconds'], marker='o', label=method)
+# Plot
+plt.figure(figsize=(10, 6))
+for method, timings in methods.items():
+    plt.plot(x_labels, timings, marker='o', label=method)
 
-# Customize the plot
-plt.xlabel('Number of Bodies')
-plt.ylabel('Time (Seconds)')
-plt.title('Performance Comparison by Method')
-plt.legend(title="Method")
+# Labels and title
+plt.xlabel("Number of Operations")
+plt.ylabel("Time (seconds)")
+plt.title("Performance Comparison of Threading Methods")
+plt.legend()
 plt.grid(True)
 plt.tight_layout()
 
+os.remove("stats.png")
+
+plt.savefig("stats.png")
 # Show the plot
 plt.show()
 
