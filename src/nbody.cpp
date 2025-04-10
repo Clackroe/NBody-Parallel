@@ -17,6 +17,7 @@
 #include <Renderer.hpp>
 
 #include <ostream>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -77,7 +78,7 @@ std::vector<Body> GenerateBodiesMT(int size)
     return bodies;
 }
 
-void BenchMarkAllCSV(const std::string& csvPath, const std::vector<int>& bodyCounts)
+void BenchMarkAllCSV(const std::string& csvPath, const std::vector<int>& bodyCounts, const std::vector<int>& threadCounts)
 {
     if (std::filesystem::exists(csvPath)) {
         std::filesystem::remove(csvPath);
@@ -85,17 +86,15 @@ void BenchMarkAllCSV(const std::string& csvPath, const std::vector<int>& bodyCou
 
     printf("======== NUM BODIES SCALING BENCHMARK ========\n");
 
-    std::fstream stream(csvPath, std::ios::out);
-    stream << "Method";
-    for (auto num : bodyCounts) {
-        stream << "," << num;
-    }
-    stream << "\n";
-
     int fixedFrames = 1;
-    std::unordered_map<std::string, std::vector<double>> times;
-    for (auto& [name, bTimes] : times) {
-        bTimes.resize(bodyCounts.size());
+    typedef std::unordered_map<std::string, std::vector<double>> TimeMap;
+
+    std::vector<TimeMap> times(threadCounts.size());
+
+    for (TimeMap& m : times) {
+        for (auto& [name, bTimes] : m) {
+            bTimes.resize(bodyCounts.size());
+        }
     }
 
     for (int index = 0; index < bodyCounts.size(); index++) {
@@ -104,68 +103,91 @@ void BenchMarkAllCSV(const std::string& csvPath, const std::vector<int>& bodyCou
 
         printf("--- BODIES: %d ---\n\n", numBodies);
 
-        std::vector<Body> seqBds = CopyBodies(bodies);
-        std::string name = "Sequential";
-        double time = BenchMark(CalculateForcesSequential, UpdateSequential, seqBds, name, fixedFrames);
-        times[name].push_back(time);
+        // Sequential benchmark
 
-        {
-            std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Reduction - Dynamic)";
-            time = BenchMark(CalculateForcesMTReduction, UpdateMT, bds, name, fixedFrames);
-            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            times[name].push_back(time);
-        }
-        {
-            std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Reduction - Static)";
-            time = BenchMark(CalculateForcesMTReductionStatic, UpdateMT, bds, name, fixedFrames);
-            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            times[name].push_back(time);
-        }
+        for (int i = 0; i < threadCounts.size(); i++) {
+            int threadCount = threadCounts[i];
+            omp_set_num_threads(threadCount); // Set the number of threads for each run
 
-        {
-            std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Atomic - Dynamic)";
-            time = BenchMark(CalculateForcesMTAtomic, UpdateMT, bds, name, fixedFrames);
-            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            times[name].push_back(time);
-        }
+            std::vector<Body> seqBds = CopyBodies(bodies);
+            std::string name = "Sequential Threads: " + std::to_string(threadCount);
+            double time = BenchMark(CalculateForcesSequential, UpdateSequential, seqBds, name, fixedFrames);
+            times[i][name].push_back(time);
+            {
+                std::vector<Body> bds = CopyBodies(bodies);
+                name = "MultiThreaded (Reduction - Dynamic) Threads: " + std::to_string(threadCount);
+                time = BenchMark(CalculateForcesMTReduction, UpdateMT, bds, name, fixedFrames);
+                Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
+                times[i][name].push_back(time);
+            }
 
-        {
-            std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Atomic - Static)";
-            time = BenchMark(CalculateForcesMTAtomicStatic, UpdateMT, bds, name, fixedFrames);
-            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            times[name].push_back(time);
-        }
+            {
+                std::vector<Body> bds = CopyBodies(bodies);
+                name = "MultiThreaded (Reduction - Static) Threads: " + std::to_string(threadCount);
+                time = BenchMark(CalculateForcesMTReductionStatic, UpdateMT, bds, name, fixedFrames);
+                Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
+                times[i][name].push_back(time);
+            }
 
-        {
-            std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Critical)";
-            time = BenchMark(CalculateForcesMTCritical, UpdateMT, bds, name, fixedFrames);
-            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
-            times[name].push_back(time);
+            {
+                std::vector<Body> bds = CopyBodies(bodies);
+                name = "MultiThreaded (Atomic - Dynamic) Threads: " + std::to_string(threadCount);
+                time = BenchMark(CalculateForcesMTAtomic, UpdateMT, bds, name, fixedFrames);
+                Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
+                times[i][name].push_back(time);
+            }
+
+            {
+                std::vector<Body> bds = CopyBodies(bodies);
+                name = "MultiThreaded (Atomic - Static) Threads: " + std::to_string(threadCount);
+                time = BenchMark(CalculateForcesMTAtomicStatic, UpdateMT, bds, name, fixedFrames);
+                Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
+                times[i][name].push_back(time);
+            }
+
+            {
+                std::vector<Body> bds = CopyBodies(bodies);
+                name = "MultiThreaded (Critical) Threads: " + std::to_string(threadCount);
+                time = BenchMark(CalculateForcesMTCritical, UpdateMT, bds, name, fixedFrames);
+                Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
+                times[i][name].push_back(time);
+            }
         }
     }
 
-    for (auto [name, bTimes] : times) {
-        stream << name;
-        for (double t : bTimes) {
-            stream << "," << t;
+    int index = 0;
+    for (auto& m : times) {
+        std::fstream stream(std::to_string(index) + "_" + csvPath, std::ios::out);
+        index++;
+        stream << "Method";
+        for (auto num : bodyCounts) {
+            stream << "," << num;
         }
         stream << "\n";
-    }
 
-    stream.close();
+        for (auto [name, bTimes] : m) {
+            stream << name;
+            for (double t : bTimes) {
+                stream << "," << t;
+            }
+            stream << "\n";
+        }
+        stream.close();
+    }
 }
 
-#define FRAMES 1000
+#define FRAMES 700
 int main()
 {
+    int num_threads = omp_get_max_threads();
+    std::cout << "Default number of threads: " << num_threads << std::endl;
     std::vector<int> bodyCounts = { 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 2000, 3000, 5000 };
 
-    BenchMarkAllCSV("benchmark_results.csv", bodyCounts);
+    // Of course, this many threads is alot and would only really be useful on high perf computers
+    // (Like mayeb Centaurous)
+    std::vector<int> threadCounts = { 1, 2, 4, 8, 16, 32, 64, 128 };
+
+    // BenchMarkAllCSV("benchmark_results.csv", bodyCounts, threadCounts);
 
     {
         std::vector<Body> bds = GenerateBodiesMT(35);
