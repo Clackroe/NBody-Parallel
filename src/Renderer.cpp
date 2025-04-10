@@ -24,7 +24,7 @@ std::vector<unsigned char> RenderFrame(std::vector<Body>& bodies, int width, int
 {
     std::vector<unsigned char> frame(width * height * 4, 0);
 
-#pragma parallel for
+#pragma omp parallel for
     for (int i = 0; i < bodies.size(); i++) {
         const Body& b = bodies[i];
         int cx = (int)((b.position.x));

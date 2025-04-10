@@ -111,16 +111,31 @@ void BenchMarkAllCSV(const std::string& csvPath, const std::vector<int>& bodyCou
 
         {
             std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Reduction)";
+            name = "MultiThreaded (Reduction - Dynamic)";
             time = BenchMark(CalculateForcesMTReduction, UpdateMT, bds, name, fixedFrames);
+            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
+            times[name].push_back(time);
+        }
+        {
+            std::vector<Body> bds = CopyBodies(bodies);
+            name = "MultiThreaded (Reduction - Static)";
+            time = BenchMark(CalculateForcesMTReductionStatic, UpdateMT, bds, name, fixedFrames);
             Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
             times[name].push_back(time);
         }
 
         {
             std::vector<Body> bds = CopyBodies(bodies);
-            name = "MultiThreaded (Atomic)";
+            name = "MultiThreaded (Atomic - Dynamic)";
             time = BenchMark(CalculateForcesMTAtomic, UpdateMT, bds, name, fixedFrames);
+            Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
+            times[name].push_back(time);
+        }
+
+        {
+            std::vector<Body> bds = CopyBodies(bodies);
+            name = "MultiThreaded (Atomic - Static)";
+            time = BenchMark(CalculateForcesMTAtomicStatic, UpdateMT, bds, name, fixedFrames);
             Vec2 avgDiff = CompareFinalPositions(seqBds, bds);
             times[name].push_back(time);
         }
@@ -153,15 +168,26 @@ int main()
     BenchMarkAllCSV("benchmark_results.csv", bodyCounts);
 
     {
-        std::vector<std::vector<unsigned char>> frames;
         std::vector<Body> bds = GenerateBodiesMT(35);
+
+        std::vector<std::vector<Body>> frameStates;
+
         for (int i = 0; i < FRAMES; i++) {
 
             CalculateForcesMTReduction(bds, G);
             UpdateMT(bds, DT, WIDTH, HEIGHT);
-
-            frames.push_back(std::move(RenderFrame(bds, WIDTH, HEIGHT)));
+            frameStates.push_back(CopyBodies(bds));
         }
+
+        std::cout << "===Rendering....===" << std::endl;
+
+        std::vector<std::vector<unsigned char>> frames(frameStates.size());
+
+#pragma omp parallel for
+        for (int i = 0; i < frameStates.size(); i++) {
+            frames[i] = std::move(RenderFrame(frameStates[i], WIDTH, HEIGHT));
+        }
+
         WriteGif(frames, WIDTH, HEIGHT, "simulation.gif");
     }
 
