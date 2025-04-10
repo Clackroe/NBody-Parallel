@@ -187,7 +187,7 @@ int main()
     // (Like mayeb Centaurous)
     std::vector<int> threadCounts = { 1, 2, 4, 8, 16, 32, 64, 128 };
 
-    // BenchMarkAllCSV("benchmark_results.csv", bodyCounts, threadCounts);
+    BenchMarkAllCSV("benchmark_results.csv", bodyCounts, threadCounts);
 
     {
         std::vector<Body> bds = GenerateBodiesMT(35);
